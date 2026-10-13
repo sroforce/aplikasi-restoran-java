@@ -1,10 +1,6 @@
 /**
  * Kelas Menu — merepresentasikan satu item menu restoran.
  *
- * Perubahan dari versi sebelumnya:
- *   - Atribut harga diubah dari int ke long agar konsisten dengan
- *     kalkulasi di kelas Main dan menghindari perbedaan tipe data.
- *
  * Menunjukkan indikator 1:
  *   Penggunaan tipe data (String, long), variabel, identifier,
  *   keyword (class, private, public, this, return) dalam implementasi
@@ -12,9 +8,9 @@
  */
 public class Menu {
 
-    // Atribut objek — private agar hanya dapat diakses melalui getter
+    // Atribut — private agar hanya dapat diakses melalui getter
     private String nama;      // Nama item menu, contoh: "Nasi Goreng"
-    private long   harga;     // Harga satuan dalam rupiah (diubah ke long)
+    private long   harga;     // Harga satuan dalam rupiah (long untuk keamanan overflow)
     private String kategori;  // "Makanan" atau "Minuman"
 
     /**
