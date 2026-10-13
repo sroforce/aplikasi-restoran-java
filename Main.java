@@ -5,23 +5,36 @@ import java.util.Locale;
 /**
  * Main.java — Aplikasi Restoran Sederhana "Nusantara Rasa"
  *
- * Perubahan dari versi sebelumnya:
- *  1. Semua kalkulasi uang menggunakan long (mencegah integer overflow)
- *  2. Batas kuantitas MAX_QTY = 999 ditambahkan ke validasi input
- *  3. Logika B1G1 diperbaiki: 1 unit berbayar → 1 unit tambahan gratis
- *  4. Diskon 10% dihitung dari subtotalAwal, bukan subtotalSetelahPromo
- *  5. Menu sama di beberapa slot digabungkan sebelum dicetak di struk
- *  6. Label pajak diubah menjadi "Pajak (10%)"
- *  7. dasarPajak dijaga agar tidak negatif
+ * [v3 — audit akhir]
  *
- * Urutan perhitungan (asumsi implementasi — tidak dirinci oleh dosen):
- *  1. subtotalAwal        = jumlah (harga × qty) semua item berbayar
- *  2. Kelayakan promo & diskon diuji dari subtotalAwal
- *  3. penguranganPromo    = unitGratis × hargaPromo (B1G1 Es Teh Manis)
- *  4. nominalDiskon       = 10% × subtotalAwal  (jika subtotalAwal > Rp100.000)
- *  5. dasarPajak          = subtotalAwal - penguranganPromo - nominalDiskon (min 0)
+ * Perubahan dari v2:
+ *  1. Logika B1G1 DIKOREKSI: promo bersifat informatif, tidak mengurangi
+ *     subtotal berbayar. Pelanggan menerima unit fisik gratis di luar
+ *     unit berbayar yang sudah masuk dalam subtotalAwal.
+ *  2. Rumus dasarPajak DIPERBARUI:
+ *       dasarPajak = subtotalAwal - nominalDiskon
+ *     (promo tidak ikut dikurangkan dari dasar pajak).
+ *  3. Variabel penguranganPromo diganti nilaiManfaatPromo agar
+ *     semantiknya jelas: nilai manfaat barang gratis, bukan potongan tunai.
+ *  4. formatRupiah diperbarui: Locale.forLanguageTag("id-ID") menggantikan
+ *     new Locale("id","ID") yang sudah deprecated sejak Java 19.
+ *  5. gabungkanSlotSama dilengkapi pemeriksaan kuantitas gabungan > MAX_QTY.
+ *
+ * ---------------------------------------------------------------
+ *  URUTAN PERHITUNGAN (asumsi implementasi — dosen tidak merinci)
+ * ---------------------------------------------------------------
+ *  1. subtotalAwal        = Σ(harga × qty) semua item berbayar
+ *  2. Kelayakan promo     = subtotalAwal > Rp50.000
+ *  3. Kelayakan diskon    = subtotalAwal > Rp100.000
+ *  4. nominalDiskon       = round(10% × subtotalAwal)  [jika memenuhi syarat]
+ *  5. dasarPajak          = subtotalAwal − nominalDiskon  (dijaga ≥ 0)
  *  6. nominalPajak        = round(10% × dasarPajak)
  *  7. totalAkhir          = dasarPajak + nominalPajak + Rp20.000
+ *
+ *  Promo B1G1 hanya menambahkan unit fisik gratis dan menampilkan
+ *  nilai manfaatnya di struk. Promo TIDAK mengurangi subtotalAwal,
+ *  dasarPajak, maupun totalAkhir.
+ * ---------------------------------------------------------------
  *
  * Program tidak menggunakan for / while / do-while / enhanced-for /
  * forEach / stream / rekursi sesuai arahan dosen.
@@ -33,14 +46,10 @@ public class Main {
     // =================================================================
     static Menu[] daftarMenu = new Menu[8];
 
-    // =================================================================
-    //  KONSTANTA
-    // =================================================================
-
     /**
-     * NAMA_MENU_PROMO: menu yang menjadi objek promo B1G1.
+     * NAMA_MENU_PROMO: menu objek promo B1G1.
      * ASUMSI IMPLEMENTASI — dosen tidak menetapkan menu promo secara eksplisit.
-     * Dipilih Es Teh Manis sebagai menu promo B1G1.
+     * Dipilih "Es Teh Manis".
      */
     static final String NAMA_MENU_PROMO = "Es Teh Manis";
 
@@ -51,10 +60,10 @@ public class Main {
     static final long   AMBANG_PROMO    =  50_000L;   // subtotalAwal harus > nilai ini
 
     /**
-     * MAX_QTY: batas maksimal jumlah pesanan per slot input.
-     * Dipilih 999 — cukup untuk kebutuhan restoran normal sekaligus
-     * mencegah nilai ekstrem yang tidak masuk akal.
+     * MAX_QTY: batas maksimal kuantitas per slot input DAN setelah penggabungan.
      * ASUMSI IMPLEMENTASI — tidak disebutkan dalam instruksi dosen.
+     * Dipilih 999: cukup untuk kebutuhan restoran normal; nilai aman dalam long
+     * (harga tertinggi × 999 × 4 slot ≈ Rp140 juta, jauh di bawah Long.MAX_VALUE).
      */
     static final int MAX_QTY = 999;
 
@@ -76,26 +85,23 @@ public class Main {
 
         Scanner sc = new Scanner(System.in);
 
-        // Tampilkan daftar menu
         tampilkanMenu();
 
-        // Array pesanan — maks 4 slot
-        // null  = slot kosong, dilewati, atau input tidak valid
+        // Array pesanan — maks 4 slot; null = kosong/dilewati/tidak valid
         Menu[] pesananMenu = new Menu[4];
         int[]  pesananQty  = new int[4];
 
-        // Instruksi kepada pelanggan
         System.out.println("====================================================");
         System.out.println("              MASUKKAN PESANAN ANDA");
         System.out.println("====================================================");
         System.out.println(" Format      : Nama Menu = Jumlah");
         System.out.println(" Contoh      : Nasi Goreng = 2");
         System.out.println(" Lewati slot : ketik tanda -");
-        System.out.println(" Maks jumlah : " + MAX_QTY + " per baris pesanan");
+        System.out.println(" Maks jumlah : " + MAX_QTY + " per baris (dan per menu)");
         System.out.println(" Menu sama   : gabungkan dalam satu baris");
         System.out.println("====================================================\n");
 
-        // Proses 4 slot secara eksplisit — tanpa perulangan (sesuai arahan dosen)
+        // Proses 4 slot secara eksplisit — tanpa perulangan
         System.out.print("Pesanan 1 : ");
         prosesSlot(sc.nextLine(), pesananMenu, pesananQty, 0);
 
@@ -108,7 +114,6 @@ public class Main {
         System.out.print("Pesanan 4 : ");
         prosesSlot(sc.nextLine(), pesananMenu, pesananQty, 3);
 
-        // Hitung dan cetak struk (penggabungan menu sama dilakukan di dalamnya)
         hitungDanCetakStruk(pesananMenu, pesananQty);
 
         sc.close();
@@ -148,19 +153,19 @@ public class Main {
         System.out.printf("  8. %-22s %s%n",
                 daftarMenu[7].getNama(), formatRupiah(daftarMenu[7].getHarga()));
         System.out.println("====================================================");
-        System.out.println(" * Promo B1G1 Es Teh Manis berlaku jika total > Rp50.000");
-        System.out.println(" * Diskon 10% berlaku jika total > Rp100.000");
+        System.out.println(" * Promo B1G1 Es Teh Manis jika total > Rp50.000");
+        System.out.println(" * Diskon 10% jika total > Rp100.000");
         System.out.println("====================================================\n");
     }
 
 
     // =================================================================
-    //  METHOD 2 — cariMenu(String nama)
+    //  METHOD 2 — cariMenu(String)
     //
     //  Mencari objek Menu berdasarkan nama menggunakan rangkaian
     //  if-else if (indikator 3) sebagai pengganti perulangan.
     //  Menggunakan equalsIgnoreCase() agar tidak peka huruf besar/kecil.
-    //  Mengembalikan null jika nama tidak ditemukan.
+    //  Mengembalikan null jika tidak ditemukan.
     // =================================================================
     static Menu cariMenu(String nama) {
         if      (daftarMenu[0].getNama().equalsIgnoreCase(nama)) return daftarMenu[0];
@@ -185,14 +190,15 @@ public class Main {
     //    isEmpty(), equalsIgnoreCase(), Integer.parseInt()
     //
     //  Struktur keputusan (indikator 3):
-    //    if         — cek "-", format, nama kosong, qty ≤ 0, qty > MAX
-    //    if-else    — menu ditemukan atau tidak
-    //    try-catch  — menangani input bukan angka
+    //    if       — cek "-", cek format, cek nama kosong,
+    //               cek qty <= 0, cek qty > MAX_QTY
+    //    if-else  — menu ditemukan atau tidak
+    //    try-catch — menangani input bukan angka
     // =================================================================
     static void prosesSlot(String input, Menu[] pesananMenu,
                            int[] pesananQty, int slotIndex) {
 
-        String teks = input.trim(); // Hapus spasi awal dan akhir
+        String teks = input.trim();
 
         // if: slot dilewati dengan tanda "-"
         if (teks.equals("-")) {
@@ -202,7 +208,7 @@ public class Main {
             return;
         }
 
-        // if: format wajib mengandung karakter '='
+        // if: format wajib mengandung '='
         if (!teks.contains("=")) {
             System.out.println("  [ERROR] Slot " + (slotIndex + 1)
                     + ": Format salah. Gunakan: Nama Menu = Jumlah\n");
@@ -211,13 +217,12 @@ public class Main {
             return;
         }
 
-        // Pisahkan nama menu dan jumlah — batas 2 bagian mencegah
-        // nama menu yang mengandung '=' ikut terpotong
+        // Pisahkan nama dan jumlah; batas 2 mencegah nama mengandung '=' terpotong
         String[] bagian    = teks.split("=", 2);
         String   namaMenu  = bagian[0].trim();
         String   jumlahStr = bagian[1].trim();
 
-        // if: nama menu tidak boleh kosong
+        // if: nama tidak boleh kosong
         if (namaMenu.isEmpty()) {
             System.out.println("  [ERROR] Slot " + (slotIndex + 1)
                     + ": Nama menu tidak boleh kosong.\n");
@@ -238,7 +243,7 @@ public class Main {
             return;
         }
 
-        // if: jumlah harus bilangan bulat positif
+        // if: jumlah harus positif
         if (jumlah <= 0) {
             System.out.println("  [ERROR] Slot " + (slotIndex + 1)
                     + ": Jumlah harus lebih dari 0.\n");
@@ -247,7 +252,7 @@ public class Main {
             return;
         }
 
-        // if: jumlah tidak boleh melebihi batas maksimal
+        // if: jumlah tidak boleh melebihi MAX_QTY
         if (jumlah > MAX_QTY) {
             System.out.println("  [ERROR] Slot " + (slotIndex + 1)
                     + ": Jumlah maksimal per pesanan adalah " + MAX_QTY + ".\n");
@@ -256,7 +261,7 @@ public class Main {
             return;
         }
 
-        // Cari nama menu di dalam daftarMenu[]
+        // Cari menu di daftarMenu[]
         Menu menu = cariMenu(namaMenu);
 
         // if-else: menu ditemukan atau tidak
@@ -278,65 +283,127 @@ public class Main {
     // =================================================================
     //  METHOD 4 — gabungkanSlotSama(...)
     //
-    //  Menggabungkan kuantitas slot yang memiliki menu yang sama.
-    //  Dari 4 slot, terdapat 6 kombinasi pasangan yang mungkin.
-    //  Semua diperiksa secara eksplisit — tanpa perulangan.
-    //  Slot lebih awal menjadi tempat gabungan; slot lebih belakang
-    //  di-null setelah digabungkan.
-    //  Dipanggil di awal hitungDanCetakStruk sebelum kalkulasi apa pun.
+    //  Menggabungkan kuantitas slot yang memiliki nama menu yang sama.
+    //  Memeriksa 6 kombinasi pasangan dari 4 slot secara eksplisit —
+    //  tanpa perulangan.
+    //
+    //  Slot lebih awal menjadi tempat penampung gabungan;
+    //  slot lebih belakang di-null setelah digabungkan.
+    //
+    //  [BARU v3] Jika jumlah gabungan > MAX_QTY, kedua slot dibatalkan
+    //  dan pesan peringatan ditampilkan dalam Bahasa Indonesia.
     // =================================================================
     static void gabungkanSlotSama(Menu[] pesananMenu, int[] pesananQty) {
 
         // Slot 0 vs Slot 1
         if (pesananMenu[0] != null && pesananMenu[1] != null
                 && pesananMenu[0].getNama().equalsIgnoreCase(pesananMenu[1].getNama())) {
-            pesananQty[0] += pesananQty[1];
-            pesananMenu[1] = null;
-            pesananQty[1]  = 0;
+            int gabungan = pesananQty[0] + pesananQty[1];
+            if (gabungan > MAX_QTY) {
+                System.out.println("  [PERINGATAN] Jumlah gabungan \""
+                        + pesananMenu[0].getNama() + "\" (" + gabungan
+                        + ") melampaui batas maksimum " + MAX_QTY
+                        + ". Pesanan untuk menu ini dibatalkan.\n");
+                pesananMenu[0] = null; pesananQty[0] = 0;
+                pesananMenu[1] = null; pesananQty[1] = 0;
+            } else {
+                pesananQty[0]  = gabungan;
+                pesananMenu[1] = null; pesananQty[1] = 0;
+            }
         }
+
         // Slot 0 vs Slot 2
         if (pesananMenu[0] != null && pesananMenu[2] != null
                 && pesananMenu[0].getNama().equalsIgnoreCase(pesananMenu[2].getNama())) {
-            pesananQty[0] += pesananQty[2];
-            pesananMenu[2] = null;
-            pesananQty[2]  = 0;
+            int gabungan = pesananQty[0] + pesananQty[2];
+            if (gabungan > MAX_QTY) {
+                System.out.println("  [PERINGATAN] Jumlah gabungan \""
+                        + pesananMenu[0].getNama() + "\" (" + gabungan
+                        + ") melampaui batas maksimum " + MAX_QTY
+                        + ". Pesanan untuk menu ini dibatalkan.\n");
+                pesananMenu[0] = null; pesananQty[0] = 0;
+                pesananMenu[2] = null; pesananQty[2] = 0;
+            } else {
+                pesananQty[0]  = gabungan;
+                pesananMenu[2] = null; pesananQty[2] = 0;
+            }
         }
+
         // Slot 0 vs Slot 3
         if (pesananMenu[0] != null && pesananMenu[3] != null
                 && pesananMenu[0].getNama().equalsIgnoreCase(pesananMenu[3].getNama())) {
-            pesananQty[0] += pesananQty[3];
-            pesananMenu[3] = null;
-            pesananQty[3]  = 0;
+            int gabungan = pesananQty[0] + pesananQty[3];
+            if (gabungan > MAX_QTY) {
+                System.out.println("  [PERINGATAN] Jumlah gabungan \""
+                        + pesananMenu[0].getNama() + "\" (" + gabungan
+                        + ") melampaui batas maksimum " + MAX_QTY
+                        + ". Pesanan untuk menu ini dibatalkan.\n");
+                pesananMenu[0] = null; pesananQty[0] = 0;
+                pesananMenu[3] = null; pesananQty[3] = 0;
+            } else {
+                pesananQty[0]  = gabungan;
+                pesananMenu[3] = null; pesananQty[3] = 0;
+            }
         }
+
         // Slot 1 vs Slot 2
         if (pesananMenu[1] != null && pesananMenu[2] != null
                 && pesananMenu[1].getNama().equalsIgnoreCase(pesananMenu[2].getNama())) {
-            pesananQty[1] += pesananQty[2];
-            pesananMenu[2] = null;
-            pesananQty[2]  = 0;
+            int gabungan = pesananQty[1] + pesananQty[2];
+            if (gabungan > MAX_QTY) {
+                System.out.println("  [PERINGATAN] Jumlah gabungan \""
+                        + pesananMenu[1].getNama() + "\" (" + gabungan
+                        + ") melampaui batas maksimum " + MAX_QTY
+                        + ". Pesanan untuk menu ini dibatalkan.\n");
+                pesananMenu[1] = null; pesananQty[1] = 0;
+                pesananMenu[2] = null; pesananQty[2] = 0;
+            } else {
+                pesananQty[1]  = gabungan;
+                pesananMenu[2] = null; pesananQty[2] = 0;
+            }
         }
+
         // Slot 1 vs Slot 3
         if (pesananMenu[1] != null && pesananMenu[3] != null
                 && pesananMenu[1].getNama().equalsIgnoreCase(pesananMenu[3].getNama())) {
-            pesananQty[1] += pesananQty[3];
-            pesananMenu[3] = null;
-            pesananQty[3]  = 0;
+            int gabungan = pesananQty[1] + pesananQty[3];
+            if (gabungan > MAX_QTY) {
+                System.out.println("  [PERINGATAN] Jumlah gabungan \""
+                        + pesananMenu[1].getNama() + "\" (" + gabungan
+                        + ") melampaui batas maksimum " + MAX_QTY
+                        + ". Pesanan untuk menu ini dibatalkan.\n");
+                pesananMenu[1] = null; pesananQty[1] = 0;
+                pesananMenu[3] = null; pesananQty[3] = 0;
+            } else {
+                pesananQty[1]  = gabungan;
+                pesananMenu[3] = null; pesananQty[3] = 0;
+            }
         }
+
         // Slot 2 vs Slot 3
         if (pesananMenu[2] != null && pesananMenu[3] != null
                 && pesananMenu[2].getNama().equalsIgnoreCase(pesananMenu[3].getNama())) {
-            pesananQty[2] += pesananQty[3];
-            pesananMenu[3] = null;
-            pesananQty[3]  = 0;
+            int gabungan = pesananQty[2] + pesananQty[3];
+            if (gabungan > MAX_QTY) {
+                System.out.println("  [PERINGATAN] Jumlah gabungan \""
+                        + pesananMenu[2].getNama() + "\" (" + gabungan
+                        + ") melampaui batas maksimum " + MAX_QTY
+                        + ". Pesanan untuk menu ini dibatalkan.\n");
+                pesananMenu[2] = null; pesananQty[2] = 0;
+                pesananMenu[3] = null; pesananQty[3] = 0;
+            } else {
+                pesananQty[2]  = gabungan;
+                pesananMenu[3] = null; pesananQty[3] = 0;
+            }
         }
     }
 
 
     // =================================================================
-    //  METHOD 5 — hitungSubtotalItem(long harga, int qty)
+    //  METHOD 5 — hitungSubtotalItem(long, int)
     //
     //  Menghitung subtotal satu item: harga satuan × jumlah pesanan.
-    //  Mengembalikan long untuk konsistensi dan keamanan overflow.
+    //  Mengembalikan long untuk keamanan overflow.
     // =================================================================
     static long hitungSubtotalItem(long harga, int qty) {
         return harga * qty;
@@ -347,17 +414,19 @@ public class Main {
     //  METHOD 6 — hitungDanCetakStruk(...)
     //
     //  Mengorkestrasikan seluruh proses pasca-input:
-    //    1. Gabungkan slot dengan menu sama
+    //    1. Gabungkan slot dengan menu yang sama
     //    2. Hitung subtotal tiap slot
     //    3. Hitung subtotalAwal
-    //    4. Promo B1G1 (nested if)
-    //    5. Diskon 10% (if-else)
-    //    6. Dasar pajak, pajak, total akhir
-    //    7. Panggil cetakStruk
+    //    4. Promo B1G1: tentukan unitGratis dan nilaiManfaatPromo
+    //       (informatif, bukan potongan tunai) — nested if
+    //    5. Diskon 10%: hitung dari subtotalAwal — if-else
+    //    6. dasarPajak = subtotalAwal - nominalDiskon
+    //    7. Pajak dan total akhir
+    //    8. Panggil cetakStruk
     // =================================================================
     static void hitungDanCetakStruk(Menu[] pesananMenu, int[] pesananQty) {
 
-        // Langkah 1: gabungkan slot dengan menu yang sama
+        // Langkah 1: gabungkan slot dengan menu yang sama (termasuk cek overflow)
         gabungkanSlotSama(pesananMenu, pesananQty);
 
         // Langkah 2: hitung subtotal tiap slot secara eksplisit (tanpa perulangan)
@@ -371,28 +440,30 @@ public class Main {
         if (pesananMenu[3] != null)
             sub3 = hitungSubtotalItem(pesananMenu[3].getHarga(), pesananQty[3]);
 
+        // Langkah 3: subtotal awal seluruh item berbayar
         long subtotalAwal = sub0 + sub1 + sub2 + sub3;
 
-        // if: tidak ada pesanan valid → batalkan transaksi
+        // if: tidak ada pesanan valid
         if (subtotalAwal == 0L) {
             System.out.println("\n[!] Tidak ada pesanan yang valid. Transaksi dibatalkan.");
             return;
         }
 
-        // -----------------------------------------------------------
-        //  Langkah 3: PROMO BELI SATU GRATIS SATU
+        // =============================================================
+        //  Langkah 4: PROMO BELI SATU GRATIS SATU (informatif)
         //
-        //  Menu promo  : Es Teh Manis (asumsi implementasi)
-        //  Syarat      : subtotalAwal > Rp50.000  DAN  qtyPromo >= 1
-        //  Mekanisme   : setiap 1 unit berbayar → 1 unit tambahan gratis
-        //                (pelanggan pesan N, terima 2N, bayar N)
+        //  ASUMSI IMPLEMENTASI:
+        //  - Menu promo : Es Teh Manis (dosen tidak menetapkan secara eksplisit)
+        //  - Mekanisme  : 1 unit berbayar → 1 unit tambahan gratis
+        //  - Unit gratis diberikan di luar unit berbayar yang sudah
+        //    masuk subtotalAwal; TIDAK mengurangi subtotal tunai
         //
         //  Nested if (indikator 3):
-        //    Outer : uji nilai transaksi  (subtotalAwal > AMBANG_PROMO)
-        //    Inner : uji kuantitas promo  (qtyPromo >= 1)
-        // -----------------------------------------------------------
+        //    Outer : subtotalAwal > AMBANG_PROMO  (syarat nilai transaksi)
+        //    Inner : qtyPromo >= 1               (ada Es Teh Manis dipesan)
+        // =============================================================
 
-        // Kumpulkan total qty Es Teh Manis dari semua slot (tanpa perulangan)
+        // Kumpulkan total qty Es Teh Manis dari semua slot — tanpa perulangan
         int qtyPromo = 0;
         if (pesananMenu[0] != null
                 && pesananMenu[0].getNama().equalsIgnoreCase(NAMA_MENU_PROMO))
@@ -412,27 +483,27 @@ public class Main {
         Menu  menuPromo  = cariMenu(NAMA_MENU_PROMO);
         if (menuPromo != null) hargaPromo = menuPromo.getHarga();
 
-        int     unitGratis       = 0;
-        long    penguranganPromo = 0L;
-        boolean promoAktif       = false;
+        int     unitGratis        = 0;
+        long    nilaiManfaatPromo = 0L;   // nilai barang gratis (informatif, bukan potongan)
+        boolean promoAktif        = false;
 
-        if (subtotalAwal > AMBANG_PROMO) {         // Outer if: nilai transaksi
-            if (qtyPromo >= 1) {                   // Inner if (nested): ada menu promo
-                unitGratis       = qtyPromo;       // 1 berbayar = 1 gratis
-                penguranganPromo = (long) unitGratis * hargaPromo;
-                promoAktif       = true;
+        if (subtotalAwal > AMBANG_PROMO) {            // Outer if: syarat nilai transaksi
+            if (qtyPromo >= 1) {                      // Inner if (nested): ada menu promo
+                unitGratis        = qtyPromo;         // 1 berbayar → 1 gratis
+                nilaiManfaatPromo = (long) unitGratis * hargaPromo;
+                promoAktif        = true;
             }
         }
 
-        // -----------------------------------------------------------
-        //  Langkah 4: DISKON 10%
+        // =============================================================
+        //  Langkah 5: DISKON 10%
         //  Syarat  : subtotalAwal > Rp100.000 (operator >, bukan >=)
-        //  Besaran : 10% dari subtotalAwal
-        // -----------------------------------------------------------
+        //  Besaran : 10% × subtotalAwal
+        //  if-else (indikator 3)
+        // =============================================================
         long    nominalDiskon = 0L;
         boolean diskonAktif   = false;
 
-        // if-else (indikator 3): diskon berlaku atau tidak
         if (subtotalAwal > AMBANG_DISKON) {
             nominalDiskon = Math.round(subtotalAwal * TARIF_DISKON);
             diskonAktif   = true;
@@ -441,25 +512,26 @@ public class Main {
             diskonAktif   = false;
         }
 
-        // -----------------------------------------------------------
-        //  Langkah 5 – 7: DASAR PAJAK, PAJAK, TOTAL AKHIR
+        // =============================================================
+        //  Langkah 6–8: DASAR PAJAK, PAJAK, TOTAL AKHIR
         //
-        //  dasarPajak = subtotalAwal - penguranganPromo - nominalDiskon
-        //  Dijaga ≥ 0: jika potongan melebihi subtotal, dasarPajak = 0
-        //  Pajak dibulatkan ke rupiah terdekat (Math.round)
-        // -----------------------------------------------------------
-        long dasarPajak = subtotalAwal - penguranganPromo - nominalDiskon;
-        if (dasarPajak < 0L) dasarPajak = 0L;
+        //  dasarPajak = subtotalAwal - nominalDiskon
+        //  Promo B1G1 TIDAK dikurangkan dari dasar pajak karena
+        //  promo hanya menambahkan unit fisik gratis, bukan potongan tunai.
+        //  dasarPajak dijaga ≥ 0 sebagai penjaga keamanan.
+        // =============================================================
+        long dasarPajak = subtotalAwal - nominalDiskon;
+        if (dasarPajak < 0L) dasarPajak = 0L;  // penjaga — seharusnya tidak terjadi
 
         long nominalPajak = Math.round(dasarPajak * TARIF_PAJAK);
         long totalAkhir   = dasarPajak + nominalPajak + BIAYA_PELAYANAN;
 
-        // Cetak struk pembayaran
+        // Cetak struk
         cetakStruk(
             pesananMenu, pesananQty,
             sub0, sub1, sub2, sub3,
             subtotalAwal,
-            promoAktif, unitGratis, penguranganPromo,
+            promoAktif, unitGratis, nilaiManfaatPromo,
             diskonAktif, nominalDiskon,
             dasarPajak, nominalPajak, totalAkhir
         );
@@ -470,15 +542,17 @@ public class Main {
     //  METHOD 7 — cetakStruk(...)
     //
     //  Mencetak struk pembayaran lengkap ke layar.
-    //  Setiap slot dicetak secara eksplisit melalui cetakItemStruk.
-    //  if-else digunakan untuk blok promo dan diskon agar struk
-    //  tetap informatif bahkan ketika potongan tidak berlaku.
+    //  [v3] Parameter penguranganPromo → nilaiManfaatPromo.
+    //  [v3] Promo ditampilkan sebagai informasi benefit (unit gratis +
+    //       nilai manfaat), bukan sebagai baris pengurangan tunai.
+    //  Diskon masih ditampilkan sebagai potongan tunai (-Rp...).
+    //  Semua angka di struk dapat ditelusuri dari rinciannya.
     // =================================================================
     static void cetakStruk(
             Menu[] pesananMenu, int[] pesananQty,
             long sub0, long sub1, long sub2, long sub3,
             long subtotalAwal,
-            boolean promoAktif, int unitGratis, long penguranganPromo,
+            boolean promoAktif, int unitGratis, long nilaiManfaatPromo,
             boolean diskonAktif, long nominalDiskon,
             long dasarPajak, long nominalPajak, long totalAkhir) {
 
@@ -502,32 +576,32 @@ public class Main {
         System.out.println(S);
         System.out.printf("  %-36s %s%n", "Subtotal Awal", formatRupiah(subtotalAwal));
 
-        // if-else: tampilkan informasi promo
+        // if-else: tampilkan informasi promo B1G1 (informatif, bukan potongan)
         if (promoAktif) {
             System.out.printf("  %-36s %s%n",
-                "Promo B1G1 (" + unitGratis + "x " + NAMA_MENU_PROMO + " gratis)",
-                "-" + formatRupiah(penguranganPromo));
-            System.out.println("    [Beli " + unitGratis
-                + " unit, dapat " + unitGratis + " unit tambahan gratis]");
+                    "Promo B1G1 Es Teh Manis", "Berlaku");
+            System.out.printf("    Dapatkan %d unit gratis (nilai manfaat: %s)%n",
+                    unitGratis, formatRupiah(nilaiManfaatPromo));
         } else {
-            System.out.printf("  %-36s %s%n", "Promo B1G1", "Tidak berlaku");
+            System.out.printf("  %-36s %s%n",
+                    "Promo B1G1 Es Teh Manis", "Tidak berlaku");
         }
 
-        // if-else: tampilkan informasi diskon
+        // if-else: tampilkan diskon (potongan tunai dari subtotal awal)
         if (diskonAktif) {
             System.out.printf("  %-36s %s%n",
-                "Diskon 10% (dari subtotal awal)",
-                "-" + formatRupiah(nominalDiskon));
+                    "Diskon 10%", "-" + formatRupiah(nominalDiskon));
         } else {
-            System.out.printf("  %-36s %s%n", "Diskon 10%", "Tidak berlaku");
+            System.out.printf("  %-36s %s%n",
+                    "Diskon 10%", "Tidak berlaku");
         }
 
         System.out.println(S);
         System.out.printf("  %-36s %s%n", "Dasar Pengenaan Pajak", formatRupiah(dasarPajak));
-        System.out.printf("  %-36s %s%n", "Pajak (10%)",           formatRupiah(nominalPajak));
-        System.out.printf("  %-36s %s%n", "Biaya Pelayanan",       formatRupiah(BIAYA_PELAYANAN));
+        System.out.printf("  %-36s %s%n", "Pajak (10%)",            formatRupiah(nominalPajak));
+        System.out.printf("  %-36s %s%n", "Biaya Pelayanan",        formatRupiah(BIAYA_PELAYANAN));
         System.out.println(L);
-        System.out.printf("  %-36s %s%n", "TOTAL PEMBAYARAN",      formatRupiah(totalAkhir));
+        System.out.printf("  %-36s %s%n", "TOTAL PEMBAYARAN",       formatRupiah(totalAkhir));
         System.out.println(L);
         System.out.println("         Terima kasih telah berkunjung!");
         System.out.println("          Selamat menikmati hidangan. :)");
@@ -538,14 +612,14 @@ public class Main {
     // =================================================================
     //  METHOD 8 — cetakItemStruk(Menu, int, long)
     //
-    //  Mencetak satu baris item pesanan dalam struk.
-    //  Menggunakan switch-case untuk label kategori (indikator 3).
-    //  Slot null (kosong atau tidak valid) tidak dicetak.
+    //  Mencetak satu baris item pesanan di dalam struk.
+    //  Slot null tidak dicetak.
+    //  switch-case (indikator 3) untuk label kategori.
     // =================================================================
     static void cetakItemStruk(Menu menu, int qty, long subtotal) {
-        if (menu == null) return; // Slot kosong — tidak dicetak
+        if (menu == null) return;
 
-        // switch-case (indikator 3): tentukan label kategori
+        // switch-case: tentukan label kategori
         String labelKategori;
         switch (menu.getKategori()) {
             case "Makanan":
@@ -558,10 +632,8 @@ public class Main {
                 labelKategori = "Lainnya";
         }
 
-        // Baris 1: nama menu, kategori, subtotal
         System.out.printf("  %-22s [%-7s]  %s%n",
                 menu.getNama(), labelKategori, formatRupiah(subtotal));
-        // Baris 2: kuantitas dan harga satuan
         System.out.printf("     %d x %s/porsi%n",
                 qty, formatRupiah(menu.getHarga()));
     }
@@ -570,12 +642,12 @@ public class Main {
     // =================================================================
     //  METHOD HELPER — formatRupiah(long)
     //
-    //  Memformat angka long ke format Rupiah Indonesia.
-    //  Menggunakan Locale("id", "ID") agar pemisah ribuan berupa titik.
-    //  Contoh: 25000 → "Rp25.000", 146940 → "Rp146.940"
+    //  [v3] Locale.forLanguageTag("id-ID") menggantikan
+    //  new Locale("id", "ID") yang deprecated sejak Java 19.
+    //  Format: 25000 → "Rp25.000"
     // =================================================================
     static String formatRupiah(long jumlah) {
-        NumberFormat nf = NumberFormat.getInstance(new Locale("id", "ID"));
+        NumberFormat nf = NumberFormat.getInstance(Locale.forLanguageTag("id-ID"));
         nf.setGroupingUsed(true);
         return "Rp" + nf.format(jumlah);
     }
